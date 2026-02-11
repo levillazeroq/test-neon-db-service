@@ -13,7 +13,18 @@ import {
   DEFAULT_PG_VERSION,
   type ProvisionedDatabase,
 } from "@/src/lib/neon-api";
+import { testDatabaseConnection } from "@/src/actions/organizations";
 import type { ActionResult, Organization } from "@/src/types";
+
+/** Normalizes a connection URI to host + path for comparison (same DB) */
+function normalizeConnectionKey(uri: string): string {
+  try {
+    const u = new URL(uri.replace(/^postgres:\/\//, "postgresql://"));
+    return `${u.hostname}${u.pathname || "/neondb"}`;
+  } catch {
+    return uri;
+  }
+}
 
 const execAsync = promisify(exec);
 
@@ -176,6 +187,176 @@ const pushSchemaToDatabase = async (
     const message =
       error instanceof Error ? error.message : "Error desconocido";
     return { success: false, error: message };
+  }
+};
+
+/**
+ * Lists Neon projects that can be assigned to an organization.
+ * Returns project id, name, connection URI (pooled), and which org (if any) already uses it.
+ */
+export interface NeonProjectForAssignment {
+  projectId: string;
+  projectName: string;
+  connectionUri: string;
+  region: string;
+  assignedTo: { id: string; name: string } | null;
+}
+
+export const listNeonProjectsForAssignment = async (): Promise<
+  ActionResult<NeonProjectForAssignment[]>
+> => {
+  try {
+    const neonApi = getNeonApiClient();
+    const neonOrgId = getNeonOrgId();
+    const listRes = await neonApi.listProjects({
+      limit: 100,
+      ...(neonOrgId ? { org_id: neonOrgId } : {}),
+    });
+    const projects = listRes.data.projects ?? [];
+
+    const dedicatedOrgs = await sharedDb.query.organizations.findMany({
+      where: eq(organizations.tier, "dedicated"),
+      columns: { id: true, name: true, databaseUrl: true },
+    });
+
+    const uriToOrg = new Map<string, { id: string; name: string }>();
+    for (const org of dedicatedOrgs) {
+      if (org.databaseUrl) {
+        uriToOrg.set(normalizeConnectionKey(org.databaseUrl), {
+          id: org.id,
+          name: org.name,
+        });
+      }
+    }
+
+    const result: NeonProjectForAssignment[] = [];
+
+    for (const p of projects) {
+      const projectId = p.id;
+      if (!projectId) continue;
+
+      try {
+        const uriRes = await neonApi.getConnectionUri({
+          projectId,
+          database_name: "neondb",
+          role_name: "neondb_owner",
+          pooled: true,
+        });
+        const connectionUri = uriRes.data?.uri;
+        if (!connectionUri) continue;
+
+        const key = normalizeConnectionKey(connectionUri);
+        const assignedTo = uriToOrg.get(key) ?? null;
+
+        result.push({
+          projectId,
+          projectName: p.name ?? projectId,
+          connectionUri,
+          region: p.region_id ?? "",
+          assignedTo,
+        });
+      } catch {
+        // Skip project if we cannot get connection URI (e.g. suspended, no branch)
+        continue;
+      }
+    }
+
+    return { success: true, data: result };
+  } catch (error: unknown) {
+    const raw =
+      error && typeof error === "object" && "response" in error
+        ? (error as { response?: { data?: { message?: string }; status?: number } })
+            .response
+        : undefined;
+    const apiMessage = raw?.data?.message;
+    const status = raw?.status;
+    const message =
+      apiMessage ??
+      (error instanceof Error ? error.message : "Error desconocido");
+    const hint =
+      status === 400 && !getNeonOrgId()
+        ? " Si tu API key es de tipo organizacion, configura NEON_ORG_ID en .env con el ID de tu organizacion en Neon."
+        : "";
+    return {
+      success: false,
+      error: `Error al listar proyectos Neon: ${message}${hint}`,
+    };
+  }
+};
+
+/**
+ * Assigns an existing Neon project (by project id) to an organization.
+ * Fetches the pooled connection URI, tests the connection, and updates the org to dedicated tier.
+ */
+export const assignExistingDatabase = async (
+  orgId: string,
+  projectId: string,
+): Promise<ActionResult<Organization>> => {
+  const org = await sharedDb.query.organizations.findFirst({
+    where: eq(organizations.id, orgId),
+  });
+
+  if (!org) {
+    return { success: false, error: "Organizacion no encontrada" };
+  }
+
+  if (org.tier === "dedicated" && org.databaseUrl) {
+    return {
+      success: false,
+      error: "Esta organizacion ya tiene una base de datos dedicada",
+    };
+  }
+
+  try {
+    const neonApi = getNeonApiClient();
+    const uriRes = await neonApi.getConnectionUri({
+      projectId,
+      database_name: "neondb",
+      role_name: "neondb_owner",
+      pooled: true,
+    });
+
+    const connectionUri = uriRes.data?.uri;
+    if (!connectionUri) {
+      return {
+        success: false,
+        error: "No se pudo obtener la URI de conexion del proyecto",
+      };
+    }
+
+    const connectionTest = await testDatabaseConnection(connectionUri);
+    if (!connectionTest.success) {
+      return {
+        success: false,
+        error: `No se puede usar esta base de datos: ${connectionTest.error}`,
+      };
+    }
+
+    const [updated] = await sharedDb
+      .update(organizations)
+      .set({
+        tier: "dedicated" as const,
+        databaseUrl: connectionUri,
+      })
+      .where(eq(organizations.id, orgId))
+      .returning();
+
+    if (!updated) {
+      return { success: false, error: "Error al actualizar la organizacion" };
+    }
+
+    revalidatePath("/organizations");
+    revalidatePath(`/${updated.slug}`);
+    revalidatePath(`/${updated.slug}/settings`);
+
+    return { success: true, data: updated };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Error desconocido";
+    return {
+      success: false,
+      error: `Error al asignar la base de datos: ${message}`,
+    };
   }
 };
 

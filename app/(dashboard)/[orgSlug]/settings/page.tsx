@@ -72,10 +72,10 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
         </CardContent>
       </Card>
 
-      <Separator />
+      {/* <Separator /> */}
 
       {/* Manual Database Tier Config */}
-      <Card>
+      {/* <Card>
         <CardHeader>
           <CardTitle>Configuracion manual</CardTitle>
           <CardDescription>
@@ -86,7 +86,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
         <CardContent>
           <TierConfigForm org={org} />
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   );
 }

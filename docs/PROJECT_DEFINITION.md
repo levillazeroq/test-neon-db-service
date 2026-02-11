@@ -462,10 +462,12 @@ DATABASE_URL=postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmod
 - [ ] Filtros, ordenamiento y busqueda en colecciones
 
 ### Fase 4 - Multi-DB (High-Ticket)
-- [ ] Integracion Neon API para crear proyectos dedicados
+- [x] Integracion Neon API para crear proyectos dedicados
 - [ ] Migration runner para DBs dedicadas
-- [ ] UI de upgrade tier en org settings
+- [x] UI de upgrade tier en org settings
 - [ ] Connection pooling y cache de conexiones
+
+> **Documento de analisis**: Ver [MULTI_TENANT_ANALYSIS.md](./MULTI_TENANT_ANALYSIS.md) para un analisis exhaustivo de las implicaciones de la arquitectura multi-DB, alternativas evaluadas (PostgreSQL Schemas, RLS, Neon Branches), matriz comparativa, y plan de accion recomendado.
 
 ### Fase 5 - Automatizaciones (Futuro)
 - [ ] Motor de flujos/workflows

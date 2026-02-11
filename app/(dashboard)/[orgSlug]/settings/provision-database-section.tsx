@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   provisionDedicatedDatabase,
   unlinkDedicatedDatabase,
+  listNeonProjectsForAssignment,
+  assignExistingDatabase,
+  type NeonProjectForAssignment,
 } from "@/src/actions/neon-projects";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +22,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Server,
   Database,
   Loader2,
@@ -27,6 +37,7 @@ import {
   AlertTriangle,
   Rocket,
   Unlink,
+  Link2,
 } from "lucide-react";
 import type { Organization } from "@/src/types";
 import type { ProvisionedDatabase } from "@/src/lib/neon-api";
@@ -52,7 +63,61 @@ export const ProvisionDatabaseSection = ({
   const [showUnlinkDialog, setShowUnlinkDialog] = useState(false);
   const [isUnlinking, setIsUnlinking] = useState(false);
 
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [projectsList, setProjectsList] = useState<
+    NeonProjectForAssignment[] | null
+  >(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [assignLoading, setAssignLoading] = useState(false);
+
   const isDedicated = org.tier === "dedicated";
+
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    setProjectsList(null);
+    const result = await listNeonProjectsForAssignment();
+    if (result.success && result.data) {
+      setProjectsList(result.data);
+    } else {
+      setProjectsError(result.error ?? "Error al cargar proyectos");
+    }
+    setProjectsLoading(false);
+  }, []);
+
+  const handleOpenAssignPicker = () => {
+    setShowAssignPicker(true);
+    setSelectedProjectId(null);
+    if (!projectsList && !projectsLoading) {
+      loadProjects();
+    }
+  };
+
+  const handleAssignExisting = async () => {
+    if (!selectedProjectId) return;
+    setAssignLoading(true);
+    setErrorMessage("");
+    const result = await assignExistingDatabase(org.id, selectedProjectId);
+    if (result.success) {
+      setShowAssignPicker(false);
+      setSelectedProjectId(null);
+      setProjectsList(null);
+      router.refresh();
+    } else {
+      setErrorMessage(result.error ?? "Error al asignar");
+    }
+    setAssignLoading(false);
+  };
+
+  const availableProjects =
+    projectsList?.filter((p) => !p.assignedTo) ?? [];
+  const selectedProject = projectsList?.find(
+    (p) => p.projectId === selectedProjectId,
+  );
 
   const handleProvision = async () => {
     setShowProvisionDialog(false);
@@ -195,9 +260,9 @@ export const ProvisionDatabaseSection = ({
 
   return (
     <div className="space-y-4">
-      {/* Idle state - show provision button */}
+      {/* Idle state - show provision and assign options */}
       {status === "idle" && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex items-start gap-3 rounded-lg border border-dashed p-4">
             <Server className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
             <div className="space-y-1">
@@ -224,7 +289,7 @@ export const ProvisionDatabaseSection = ({
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap gap-2">
             <Button
               onClick={() => setShowProvisionDialog(true)}
               tabIndex={0}
@@ -233,7 +298,113 @@ export const ProvisionDatabaseSection = ({
               <Rocket className="mr-2 h-4 w-4" />
               Crear base de datos dedicada
             </Button>
+            <Button
+              variant="outline"
+              onClick={handleOpenAssignPicker}
+              tabIndex={0}
+              aria-label="Asignar una base de datos existente"
+            >
+              <Link2 className="mr-2 h-4 w-4" />
+              Asignar una existente
+            </Button>
           </div>
+
+          {/* Assign existing DB picker */}
+          {showAssignPicker && (
+            <div className="space-y-3 rounded-lg border border-dashed p-4">
+              <p className="text-sm font-medium">
+                Selecciona un proyecto Neon existente
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Solo se muestran proyectos que aun no estan asignados a otra
+                organizacion.
+              </p>
+              {projectsLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando proyectos...
+                </div>
+              )}
+              {projectsError && (
+                <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                  {projectsError}
+                </div>
+              )}
+              {!projectsLoading && projectsList && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <Select
+                    value={selectedProjectId ?? ""}
+                    onValueChange={(v) =>
+                      setSelectedProjectId(v && v !== "__none" ? v : null)
+                    }
+                    disabled={availableProjects.length === 0}
+                  >
+                    <SelectTrigger
+                      className="min-w-[220px]"
+                      aria-label="Proyecto Neon a asignar"
+                    >
+                      <SelectValue placeholder="Selecciona un proyecto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableProjects.length === 0 ? (
+                        <SelectItem value="__none" disabled>
+                          No hay proyectos disponibles
+                        </SelectItem>
+                      ) : (
+                        availableProjects.map((p) => (
+                          <SelectItem
+                            key={p.projectId}
+                            value={p.projectId}
+                            aria-label={`${p.projectName} (${p.projectId})`}
+                          >
+                            {p.projectName}
+                            {p.region ? ` · ${p.region}` : ""}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleAssignExisting}
+                    disabled={
+                      !selectedProjectId || assignLoading || !selectedProject
+                    }
+                    tabIndex={0}
+                    aria-label="Asignar proyecto seleccionado"
+                  >
+                    {assignLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="mr-2 h-4 w-4" />
+                    )}
+                    Asignar a esta organizacion
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowAssignPicker(false);
+                      setSelectedProjectId(null);
+                      setErrorMessage("");
+                    }}
+                    tabIndex={0}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              )}
+              {!projectsLoading && projectsList && projectsList.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {availableProjects.length} proyecto(s) disponible(s).
+                  {projectsList.some((p) => p.assignedTo) &&
+                    ` Otros ya estan asignados a otras organizaciones.`}
+                </p>
+              )}
+              {errorMessage && (
+                <p className="text-xs text-destructive">{errorMessage}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
