@@ -1,0 +1,356 @@
+{
+  "name": "ZeroQ AI Agent - Consulta de Datos",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "a1000001-0001-4000-8000-000000000001",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "webhookId": "zeroq-chat-trigger"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "=Eres el asistente inteligente de ZeroQ, una plataforma de gestión de reservas y datos empresariales.\nTu objetivo es ayudar al usuario a consultar información de su organización de forma conversacional.\n\n## Capacidades\n\n### Sistema de Reservas (Core)\n- **Servicios**: Consultar servicios disponibles (nombre, descripción, duración, precio, estado)\n- **Recursos**: Ver recursos que proveen servicios (empleados, salas, mesas, equipos)\n- **Clientes**: Buscar información de clientes (nombre, email, teléfono)\n- **Reservas**: Consultar reservas con todos sus detalles (servicio, recurso, cliente, fecha/hora, estado)\n- **Estadísticas**: Obtener conteos de reservas (total, pendientes, confirmadas)\n\n### Data Personalizada (Custom Collections)\nLa organización puede tener colecciones de datos personalizados (similar a tablas de Airtable/Notion).\n- **Listar colecciones**: Ver qué colecciones de datos tiene la organización\n- **Ver campos**: Consultar los campos (columnas) de cada colección\n- **Ver registros**: Consultar los datos almacenados en cada colección\n\n### Flujo para consultar datos personalizados:\n1. Usa get_collections para ver las colecciones disponibles\n2. Usa get_collection_details con el ID de la colección para ver sus campos\n3. Usa get_collection_records con el ID para obtener los registros con nombres de campo resueltos\n\n## Estados de Reserva\n- pending = Pendiente\n- confirmed = Confirmada\n- cancelled = Cancelada\n- completed = Completada\n- no_show = No se presentó\n\n## Instrucciones\n- Responde siempre en español\n- Sé conciso pero informativo\n- Si el usuario pregunta algo que no puedes consultar, indícalo amablemente\n- Cuando muestres datos, formatea las fechas y precios de forma legible\n- Si hay muchos registros, ofrece resúmenes y destaca lo más relevante\n- Cuando muestres listas, usa formato de tabla o viñetas para mayor claridad"
+        }
+      },
+      "id": "a1000001-0002-4000-8000-000000000002",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "a1000001-0003-4000-8000-000000000003",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [200, 520],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "get_organization_info",
+        "description": "Obtiene la información general de la organización: nombre, slug, tier (shared/dedicated), configuración y fechas. Usar cuando el usuario pregunte sobre la organización actual.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0004-4000-8000-000000000004",
+      "name": "Get Organization Info",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-200, 740]
+    },
+    {
+      "parameters": {
+        "name": "get_services",
+        "description": "Obtiene la lista completa de servicios disponibles en la organización. Cada servicio tiene: nombre, descripción, duración en minutos, precio, si está activo, y metadata. Usar cuando el usuario pregunte por servicios, qué se puede reservar, precios o duración de servicios.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/services?includeResources=true",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0005-4000-8000-000000000005",
+      "name": "Get Services",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [0, 740]
+    },
+    {
+      "parameters": {
+        "name": "get_resources",
+        "description": "Obtiene todos los recursos disponibles. Los recursos son las personas, salas, mesas o equipos que proveen los servicios. Cada recurso tiene: nombre, servicio asociado, si está activo. Usar cuando el usuario pregunte por empleados, salas, mesas, quién atiende, etc.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/resources",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0006-4000-8000-000000000006",
+      "name": "Get Resources",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [200, 740]
+    },
+    {
+      "parameters": {
+        "name": "get_customers",
+        "description": "Obtiene la lista de todos los clientes registrados. Cada cliente tiene: nombre, email, teléfono y metadata. Usar cuando el usuario pregunte por clientes, buscar un cliente específico, o ver datos de contacto.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/customers",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0007-4000-8000-000000000007",
+      "name": "Get Customers",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [400, 740]
+    },
+    {
+      "parameters": {
+        "name": "get_reservations",
+        "description": "Obtiene todas las reservas con detalles completos: nombre del servicio, nombre del recurso, nombre y email del cliente, fecha/hora de inicio y fin, estado (pending/confirmed/cancelled/completed/no_show), notas y duración. Usar cuando el usuario pregunte por reservas, citas, agenda, horarios ocupados, etc.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/reservations",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0008-4000-8000-000000000008",
+      "name": "Get Reservations",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, 740]
+    },
+    {
+      "parameters": {
+        "name": "get_reservation_stats",
+        "description": "Obtiene las estadísticas rápidas de reservas: total de reservas, cuántas están pendientes y cuántas están confirmadas. Usar cuando el usuario pregunte por resumen, métricas, o conteos de reservas.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/reservations/stats",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-0009-4000-8000-000000000009",
+      "name": "Get Reservation Stats",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [-200, 940]
+    },
+    {
+      "parameters": {
+        "name": "get_collections",
+        "description": "Obtiene la lista de todas las colecciones de datos personalizados (custom collections) de la organización. Son como tablas personalizadas tipo Airtable/Notion donde la empresa almacena datos extra (inventarios, productos, empleados, etc.). Retorna: nombre, descripción, icono e ID de cada colección. IMPORTANTE: Primero usa esta herramienta para conocer las colecciones disponibles y sus IDs antes de consultar detalles o registros.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/collections",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "a1000001-000a-4000-8000-00000000000a",
+      "name": "Get Collections",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [0, 940]
+    },
+    {
+      "parameters": {
+        "name": "get_collection_details",
+        "description": "Obtiene los detalles de una colección específica incluyendo todos sus campos (fields/columnas). Cada campo tiene: nombre, tipo (text/number/date/boolean/select/etc.), si es requerido y opciones. Usar ANTES de consultar registros para entender la estructura de datos de la colección. Necesita el collectionId (UUID) que obtienes de get_collections.",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/collections/{collectionId}",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false,
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "collectionId",
+              "description": "El ID (UUID) de la colección a consultar. Obtenlo primero con get_collections.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "a1000001-000b-4000-8000-00000000000b",
+      "name": "Get Collection Details",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [200, 940]
+    },
+    {
+      "parameters": {
+        "name": "get_collection_records",
+        "description": "Obtiene todos los registros (filas de datos) de una colección específica. Los registros se devuelven con nombres de campo legibles (no IDs). Cada registro tiene: ID, datos con clave=nombreCampo y valor, fechas de creación y actualización. Usar cuando el usuario quiera ver los datos almacenados en una colección. Necesita el collectionId (UUID).",
+        "method": "GET",
+        "url": "http://localhost:3000/api/v1/demo/collections/{collectionId}/records",
+        "sendHeaders": false,
+        "sendQuery": false,
+        "sendBody": false,
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "collectionId",
+              "description": "El ID (UUID) de la colección cuyos registros quieres obtener. Obtenlo con get_collections.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "a1000001-000c-4000-8000-00000000000c",
+      "name": "Get Collection Records",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [400, 940]
+    },
+    {
+      "parameters": {
+        "content": "## ⚙️ Configuración del Workflow ZeroQ AI Agent\n\n### 1. Configurar URL base\nReemplaza `http://localhost:3000` en TODOS los nodos de herramientas (Tools) con la URL de tu aplicación Next.js.\n\n### 2. Configurar Organization Slug\nReemplaza `demo` en TODAS las URLs de herramientas con el **slug** de tu organización.\n\nEjemplo: si tu org slug es `mi-clinica`, las URLs quedarían:\n`http://localhost:3000/api/v1/mi-clinica/services`\n\n### 3. Configurar OpenAI\nConecta tu credencial de OpenAI en el nodo **OpenAI Chat Model**.\nPuedes cambiar el modelo (por defecto: `gpt-4o-mini`).\n\n### 4. Probar\nActiva el workflow y abre el chat de prueba integrado.\n\n---\n\n**Endpoints disponibles:**\n- `GET /api/v1/{orgSlug}/` → Info de org\n- `GET /api/v1/{orgSlug}/services` → Servicios\n- `GET /api/v1/{orgSlug}/resources` → Recursos\n- `GET /api/v1/{orgSlug}/customers` → Clientes\n- `GET /api/v1/{orgSlug}/reservations` → Reservas\n- `GET /api/v1/{orgSlug}/reservations/stats` → Estadísticas\n- `GET /api/v1/{orgSlug}/collections` → Colecciones\n- `GET /api/v1/{orgSlug}/collections/{id}` → Detalle colección\n- `GET /api/v1/{orgSlug}/collections/{id}/records` → Registros",
+        "height": 700,
+        "width": 420,
+        "color": 4
+      },
+      "id": "a1000001-000d-4000-8000-00000000000d",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-680, 200]
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Organization Info": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Services": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Resources": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customers": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reservations": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reservation Stats": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Collections": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Collection Details": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Collection Records": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-11T00:00:00.000Z",
+  "versionId": "1"
+}
