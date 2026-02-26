@@ -9,6 +9,11 @@ import {
 } from "@/src/db/schema";
 import { eq, asc } from "drizzle-orm";
 import {
+  buildEmbeddingText,
+  generateEmbedding,
+  generateEmbeddingsBatch,
+} from "@/src/lib/embeddings";
+import {
   createCollectionSchema,
   createFieldSchema,
   createRecordSchema,
@@ -267,6 +272,29 @@ export const createRecord = async (
     })
     .returning();
 
+  // Generate embedding if the collection has fields configured
+  if (collection.embeddingFieldIds.length > 0) {
+    try {
+      const fields = await db.query.customFields.findMany({
+        where: eq(customFields.collectionId, collectionId),
+      });
+      const text = buildEmbeddingText(
+        collection.embeddingFieldIds,
+        fields,
+        parsed.data.data,
+      );
+      const embedding = await generateEmbedding(text);
+      if (embedding) {
+        await db
+          .update(customRecords)
+          .set({ embedding })
+          .where(eq(customRecords.id, record.id));
+      }
+    } catch (err) {
+      console.error("Embedding generation failed for record:", record.id, err);
+    }
+  }
+
   revalidatePath(`/${orgSlug}/collections/${collectionId}`);
 
   return { success: true, data: record };
@@ -291,9 +319,27 @@ export const bulkImportRecords = async (
     return { success: false, error: "Coleccion no encontrada" };
   }
 
-  const values = records.map((data) => ({
+  // Pre-generate embeddings for all records in one batched API call
+  let recordEmbeddings: (number[] | null)[] = records.map(() => null);
+  if (collection.embeddingFieldIds.length > 0) {
+    try {
+      const fields = await db.query.customFields.findMany({
+        where: eq(customFields.collectionId, collectionId),
+      });
+      const texts = records.map((data) =>
+        buildEmbeddingText(collection.embeddingFieldIds, fields, data),
+      );
+      recordEmbeddings = await generateEmbeddingsBatch(texts);
+    } catch (err) {
+      console.error("Embedding generation failed for bulk import:", err);
+      // Continue without embeddings
+    }
+  }
+
+  const values = records.map((data, idx) => ({
     collectionId,
     data,
+    embedding: recordEmbeddings[idx],
   }));
 
   // Insert in batches of 100
@@ -333,6 +379,99 @@ export const deleteRecord = async (
   return { success: true };
 };
 
+/** Update which fields are used for embedding generation */
+export const updateEmbeddingFields = async (
+  orgSlug: string,
+  collectionId: string,
+  fieldIds: string[],
+): Promise<ActionResult<CustomCollection>> => {
+  const { db, orgId } = await getDbForOrg(orgSlug);
+
+  const collection = await db.query.customCollections.findFirst({
+    where: eq(customCollections.id, collectionId),
+  });
+  if (!collection || collection.organizationId !== orgId) {
+    return { success: false, error: "Coleccion no encontrada" };
+  }
+
+  const [updated] = await db
+    .update(customCollections)
+    .set({ embeddingFieldIds: fieldIds })
+    .where(eq(customCollections.id, collectionId))
+    .returning();
+
+  revalidatePath(`/${orgSlug}/collections/${collectionId}`);
+
+  return { success: true, data: updated };
+};
+
+/**
+ * Regenerates embeddings for all existing records in a collection using
+ * the currently saved embeddingFieldIds configuration.
+ */
+export const regenerateEmbeddings = async (
+  orgSlug: string,
+  collectionId: string,
+): Promise<ActionResult<{ updated: number }>> => {
+  const { db, orgId } = await getDbForOrg(orgSlug);
+
+  const collection = await db.query.customCollections.findFirst({
+    where: eq(customCollections.id, collectionId),
+  });
+  if (!collection || collection.organizationId !== orgId) {
+    return { success: false, error: "Coleccion no encontrada" };
+  }
+
+  if (collection.embeddingFieldIds.length === 0) {
+    return {
+      success: false,
+      error: "Configura al menos un campo de embedding antes de regenerar",
+    };
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return { success: false, error: "OPENAI_API_KEY no esta configurado" };
+  }
+
+  const [fields, allRecords] = await Promise.all([
+    db.query.customFields.findMany({
+      where: eq(customFields.collectionId, collectionId),
+    }),
+    db.query.customRecords.findMany({
+      where: eq(customRecords.collectionId, collectionId),
+    }),
+  ]);
+
+  if (allRecords.length === 0) {
+    return { success: true, data: { updated: 0 } };
+  }
+
+  const texts = allRecords.map((record) =>
+    buildEmbeddingText(
+      collection.embeddingFieldIds,
+      fields,
+      record.data as Record<string, unknown>,
+    ),
+  );
+
+  const embeddings = await generateEmbeddingsBatch(texts);
+
+  let updated = 0;
+  for (let i = 0; i < allRecords.length; i++) {
+    const embedding = embeddings[i];
+    if (!embedding) continue;
+    await db
+      .update(customRecords)
+      .set({ embedding })
+      .where(eq(customRecords.id, allRecords[i].id));
+    updated++;
+  }
+
+  revalidatePath(`/${orgSlug}/collections/${collectionId}`);
+
+  return { success: true, data: { updated } };
+};
+
 /** Update a record's data */
 export const updateRecord = async (
   orgSlug: string,
@@ -357,6 +496,25 @@ export const updateRecord = async (
 
   if (!updated) {
     return { success: false, error: "Registro no encontrado" };
+  }
+
+  // Regenerate embedding with the updated data
+  if (collection.embeddingFieldIds.length > 0) {
+    try {
+      const fields = await db.query.customFields.findMany({
+        where: eq(customFields.collectionId, collectionId),
+      });
+      const text = buildEmbeddingText(collection.embeddingFieldIds, fields, data);
+      const embedding = await generateEmbedding(text);
+      if (embedding) {
+        await db
+          .update(customRecords)
+          .set({ embedding })
+          .where(eq(customRecords.id, recordId));
+      }
+    } catch (err) {
+      console.error("Embedding regeneration failed for record:", recordId, err);
+    }
   }
 
   revalidatePath(`/${orgSlug}/collections/${collectionId}`);

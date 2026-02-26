@@ -6,6 +6,7 @@ import { ArrowLeft, Upload } from "lucide-react";
 import { CollectionTable } from "./collection-table";
 import { AddRecordDialog } from "./add-record-dialog";
 import { AddFieldDialog } from "./add-field-dialog";
+import { EmbeddingFieldsConfig } from "./embedding-fields-config";
 
 interface CollectionDetailPageProps {
   params: Promise<{ orgSlug: string; collectionId: string }>;
@@ -73,6 +74,13 @@ export default async function CollectionDetailPage({
         collectionId={collectionId}
         fields={fields}
         records={records}
+      />
+
+      <EmbeddingFieldsConfig
+        orgSlug={orgSlug}
+        collection={collection}
+        fields={fields}
+        recordCount={records.length}
       />
     </div>
   );

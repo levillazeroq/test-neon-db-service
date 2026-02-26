@@ -8,7 +8,9 @@ import {
   jsonb,
   timestamp,
   index,
+  vector,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 import { organizations } from "./organizations";
 
@@ -36,6 +38,10 @@ export const customCollections = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     icon: text("icon"),
+    embeddingFieldIds: text("embedding_field_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -78,6 +84,7 @@ export const customRecords = pgTable(
       .notNull()
       .references(() => customCollections.id, { onDelete: "cascade" }),
     data: jsonb("data").notNull().default({}),
+    embedding: vector("embedding", { dimensions: 1536 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
